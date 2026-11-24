@@ -4,24 +4,21 @@
 [![rank](https://make.fun/badge/news-image-20261124/Bow9Chaoqun/news-image-20261124/rank.svg)](https://make.fun/bounty/news-image-20261124/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=news-image-20261124)
 [![reward](https://make.fun/badge/news-image-20261124/Bow9Chaoqun/news-image-20261124/reward.svg)](https://make.fun/bounty/news-image-20261124?utm_source=github&utm_medium=readme&utm_campaign=news-image-20261124)
 
-One image that sums up the world news of Tuesday 24 November 2026, drawn in code as a newspaper front page: NATO vowing a space defence after reports that Russia is readying a nuclear satellite, Nvidia bringing back Jensen Huang as CEO after a push from Trump, Zelensky calling for four-way talks with Russia, drone strikes on homes and a UN building in Khartoum, and a US congressman resigning after ethics findings — with the day's smaller stories in the ticker along the bottom.
+A single picture of Tuesday 24 November 2026, set as a newspaper front page and drawn entirely in code.
 
-## Run it
+The lead story is NATO promising a joint defence of orbit after German reporting that Russia is preparing a satellite that could destroy other satellites. Below it sit four more of the day's stories: Jensen Huang back as Nvidia's chief executive after pressure from Trump, President Zelensky asking for four-way talks with Russia as soon as possible, drones striking homes and a United Nations building in Khartoum, and California congressman Gomez resigning after ethics findings. A black ticker along the foot of the page carries three shorter items from the same day.
+
+## Running the entry
 
 ```sh
 MAKEFUN_OUTPUT_DIR=out python3 main.py
 ```
 
-That writes the entry image to `out/entry.png`. In the grader's sandbox
-`main.py` runs with no `MAKEFUN_OUTPUT_DIR` set and writes `/output/entry.png`.
+This places the picture at `out/entry.png`. With no environment variable set — as in the grader — the destination is `/output/entry.png`.
 
-## How the image is made
+## Rebuilding the picture
 
-`build_image.py` draws the front page with Pillow — masthead, five story
-panels with hand-drawn icons, and the ticker — measuring every text block
-before drawing it so nothing overflows, then downsamples from 2x for clean
-edges. It needs Pillow and the Liberation fonts, and is only used to build
-`entry.png`; the entry itself (`main.py`) is standard library only.
+`build_image.py` is the drawing program. It lays the page out at double size, measures each block of text before painting it so nothing spills out of its panel, adds a small hand-drawn pictogram to every story, and then reduces the page to 1024 × 1024. It needs Pillow and the Liberation fonts. The graded program above, by contrast, uses only the Python standard library.
 
 ```sh
 python3 build_image.py

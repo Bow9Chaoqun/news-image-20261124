@@ -1,324 +1,370 @@
 #!/usr/bin/env python3
-"""Build entry.png: one image summing up the world news of Tuesday 24 November 2026.
+"""Render entry.png for the news-image-20261124 make.fun entry.
 
-Draws a newspaper front page with Pillow at 2x scale and downsamples it,
-so edges and text stay clean. Layout is measured first (every text block
-is wrapped and counted before anything is drawn), so no caption can ever
-overflow its panel.
+The picture is a one-page newspaper for Tuesday 24 November 2026.
+Everything is drawn with Pillow on a canvas twice the final size and
+then reduced, which keeps the lettering crisp at 1024 x 1024.
 
-Run locally to (re)build the image:
+    python3 build_image.py        # writes ./entry.png
 
-    python3 build_image.py
-
-The competition entry itself is main.py, which only copies entry.png to
-/output/entry.png inside the grader's sandbox (standard library only).
+main.py is the graded program; it only copies the finished PNG.
 """
 
-import math
+from dataclasses import dataclass
+from math import cos, pi, sin
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-S = 2  # supersampling factor
-W, H = 1024 * S, 1024 * S
+SS = 2
+FINAL = 1024
+CANVAS = FINAL * SS
+OUT = Path(__file__).with_name("entry.png")
 
-PAPER = (248, 244, 232)
-CARD = (255, 253, 246)
-INK = (20, 22, 26)
-MUTE = (92, 92, 88)
-RED = (179, 35, 42)
-GREEN = (29, 111, 66)
-NAVY = (39, 65, 86)
-DARKRED = (122, 31, 43)
-GOLD = (138, 90, 18)
-PURPLE = (75, 46, 131)
-BLUE = (46, 96, 178)
+BG = (248, 244, 232)
+PANEL_BG = (255, 253, 246)
+BODY = (24, 24, 28)
+SOFT = (54, 54, 52)
+GREY = (94, 94, 90)
+CRIMSON = (179, 35, 42)
+LEAF = (29, 111, 66)
+SEA = (39, 65, 86)
+WINE = (122, 31, 43)
+OCHRE = (138, 90, 18)
+VIOLET = (75, 46, 131)
+SKY = (46, 96, 178)
 
-FONT_DIR = "/usr/share/fonts/truetype"
-SERIF_B = f"{FONT_DIR}/liberation/LiberationSerif-Bold.ttf"
-SANS_B = f"{FONT_DIR}/liberation/LiberationSans-Bold.ttf"
-SANS = f"{FONT_DIR}/liberation/LiberationSans-Regular.ttf"
-SANS_I = f"{FONT_DIR}/liberation/LiberationSans-Italic.ttf"
-
-
-def F(path, size):
-    return ImageFont.truetype(path, size * S)
+FONT_ROOT = Path("/usr/share/fonts/truetype/liberation")
+SERIF = FONT_ROOT / "LiberationSerif-Bold.ttf"
+BOLD = FONT_ROOT / "LiberationSans-Bold.ttf"
+REG = FONT_ROOT / "LiberationSans-Regular.ttf"
+ITAL = FONT_ROOT / "LiberationSans-Italic.ttf"
 
 
-def wrap(d, text, font, max_w):
-    """Greedy word wrap on measured text width."""
-    words, lines, cur = text.split(), [], ""
-    for w_ in words:
-        trial = (cur + " " + w_).strip()
-        if d.textlength(trial, font=font) <= max_w or not cur:
-            cur = trial
+def load(path, pt):
+    return ImageFont.truetype(str(path), pt * SS)
+
+
+def wrapped(draw, sentence, face, limit):
+    out, line = [], ""
+    for word in sentence.split():
+        trial = f"{line} {word}".strip()
+        if draw.textlength(trial, font=face) <= limit or line == "":
+            line = trial
         else:
-            lines.append(cur)
-            cur = w_
-    if cur:
-        lines.append(cur)
-    return lines
+            out.append(line)
+            line = word
+    if line:
+        out.append(line)
+    return out
 
 
-def block_h(font, n_lines, leading=1.18):
-    """Height of n_lines of text, in final-scale (1024) pixels."""
-    asc, desc = font.getmetrics()
-    return int((asc + desc) * leading) * n_lines // S
+def leading(face, ratio):
+    a, b = face.getmetrics()
+    return int((a + b) * ratio)
 
 
-def draw_lines(d, x, y, lines, font, fill, leading=1.18):
-    asc, desc = font.getmetrics()
-    step = int((asc + desc) * leading)
-    for ln in lines:
-        d.text((x, y), ln, font=font, fill=fill)
+def stack_height(face, count, ratio=1.18):
+    return leading(face, ratio) * count // SS
+
+
+def paint_stack(draw, x, y, rows, face, colour, ratio=1.18):
+    step = leading(face, ratio)
+    for row in rows:
+        draw.text((x, y), row, font=face, fill=colour)
         y += step
     return y
 
 
-def centered(d, cx, y, text, font, fill):
-    w_ = d.textlength(text, font=font)
-    d.text((cx - w_ / 2, y), text, font=font, fill=fill)
-    asc, desc = font.getmetrics()
-    return y + asc + desc
+def centred(draw, y, sentence, face, colour):
+    draw.text((CANVAS // 2, y), sentence, font=face, fill=colour, anchor="ma")
+    a, b = face.getmetrics()
+    return y + a + b
 
 
-def chip(d, x, y, text, color):
-    f = F(SANS_B, 20)
-    tw = d.textlength(text, font=f)
-    pad_x, h = 13 * S, 32 * S
-    d.rounded_rectangle([x, y, x + tw + 2 * pad_x, y + h], radius=8 * S, fill=color)
-    d.text((x + pad_x, y + 5 * S), text, font=f, fill=(255, 255, 255))
-    return h
+def pill(draw, x, y, wording, colour):
+    face = load(BOLD, 20)
+    width = draw.textlength(wording, font=face)
+    draw.rounded_rectangle(
+        [x, y, x + width + 26 * SS, y + 32 * SS],
+        radius=8 * SS, fill=colour)
+    draw.text((x + 13 * SS, y + 5 * SS), wording, font=face, fill=(255, 255, 255))
 
 
-# ---------------------------------------------------------------- icons
-def icon_satellite(d, cx, cy, r):
-    w_ = 7 * S
-    d.ellipse([cx - r, cy - r * 0.62, cx + r, cy + r * 0.62], outline=MUTE, width=4 * S)
-    d.rounded_rectangle([cx - r * 0.22, cy - r * 0.34, cx + r * 0.22, cy + r * 0.3],
-                        radius=8 * S, outline=INK, width=w_)
-    for sgn in (-1, 1):
-        x0 = cx + sgn * r * 0.3
-        x1 = cx + sgn * r * 0.88
-        d.rectangle([min(x0, x1), cy - r * 0.26, max(x0, x1), cy + r * 0.2],
-                    outline=INK, width=w_ - 2 * S)
-        mid = (x0 + x1) / 2
-        d.line([mid, cy - r * 0.26, mid, cy + r * 0.2], fill=INK, width=w_ - 3 * S)
-    d.arc([cx - r * 0.16, cy + r * 0.22, cx + r * 0.16, cy + r * 0.54],
-          0, 180, fill=INK, width=w_ - 2 * S)
-    sx, sy, sr = cx + r * 0.62, cy - r * 0.82, r * 0.17
-    pts = []
-    for i in range(10):
-        ang = -math.pi / 2 + i * math.pi / 5
-        rad = sr if i % 2 == 0 else sr * 0.45
-        pts.append((sx + rad * math.cos(ang), sy + rad * math.sin(ang)))
-    d.polygon(pts, fill=RED)
+# ------------------------------------------------------------- pictograms
+def pictogram_satellite(draw, cx, cy, rad):
+    thick = 7 * SS
+    draw.ellipse([cx - rad, cy - rad * 0.6, cx + rad, cy + rad * 0.6],
+                 outline=GREY, width=4 * SS)
+    draw.rounded_rectangle(
+        [cx - rad * 0.2, cy - rad * 0.32, cx + rad * 0.2, cy + rad * 0.28],
+        radius=8 * SS, outline=BODY, width=thick)
+    for side in (-1, 1):
+        near = cx + side * rad * 0.28
+        far = cx + side * rad * 0.86
+        left, right = min(near, far), max(near, far)
+        draw.rectangle([left, cy - rad * 0.24, right, cy + rad * 0.18],
+                       outline=BODY, width=thick - 2 * SS)
+        draw.line([(near + far) / 2, cy - rad * 0.24,
+                   (near + far) / 2, cy + rad * 0.18],
+                  fill=BODY, width=thick - 3 * SS)
+    draw.arc([cx - rad * 0.15, cy + rad * 0.2, cx + rad * 0.15, cy + rad * 0.5],
+             0, 180, fill=BODY, width=thick - 2 * SS)
+    star_x, star_y, star_r = cx + rad * 0.6, cy - rad * 0.8, rad * 0.16
+    points = []
+    for k in range(10):
+        angle = -pi / 2 + k * pi / 5
+        reach = star_r if k % 2 == 0 else star_r * 0.45
+        points.append((star_x + reach * cos(angle), star_y + reach * sin(angle)))
+    draw.polygon(points, fill=CRIMSON)
 
 
-def icon_chip_return(d, cx, cy, r):
-    w_ = 7 * S
-    box = [cx - r * 0.52, cy - r * 0.52, cx + r * 0.52, cy + r * 0.52]
-    d.rounded_rectangle(box, radius=12 * S, outline=INK, width=w_)
-    for i in range(3):
-        off = -r * 0.3 + i * r * 0.3
-        d.line([cx + off, cy - r * 0.52, cx + off, cy - r * 0.82], fill=INK, width=w_ - 2 * S)
-        d.line([cx + off, cy + r * 0.52, cx + off, cy + r * 0.82], fill=INK, width=w_ - 2 * S)
-        d.line([cx - r * 0.52, cy + off, cx - r * 0.82, cy + off], fill=INK, width=w_ - 2 * S)
-        d.line([cx + r * 0.52, cy + off, cx + r * 0.82, cy + off], fill=INK, width=w_ - 2 * S)
-    rr = r * 0.3
-    d.arc([cx - rr, cy - rr, cx + rr, cy + rr], 300, 200, fill=PURPLE, width=w_)
-    ax, ay = cx + rr * 0.87, cy - rr * 0.5
-    d.polygon([(ax + r * 0.16, ay - r * 0.02), (ax - r * 0.05, ay - r * 0.16),
-               (ax - r * 0.02, ay + r * 0.14)], fill=PURPLE)
+def pictogram_chip(draw, cx, cy, rad):
+    thick = 7 * SS
+    draw.rounded_rectangle(
+        [cx - rad * 0.5, cy - rad * 0.5, cx + rad * 0.5, cy + rad * 0.5],
+        radius=12 * SS, outline=BODY, width=thick)
+    for k in range(3):
+        shift = -rad * 0.3 + k * rad * 0.3
+        draw.line([cx + shift, cy - rad * 0.5, cx + shift, cy - rad * 0.8],
+                  fill=BODY, width=thick - 2 * SS)
+        draw.line([cx + shift, cy + rad * 0.5, cx + shift, cy + rad * 0.8],
+                  fill=BODY, width=thick - 2 * SS)
+        draw.line([cx - rad * 0.5, cy + shift, cx - rad * 0.8, cy + shift],
+                  fill=BODY, width=thick - 2 * SS)
+        draw.line([cx + rad * 0.5, cy + shift, cx + rad * 0.8, cy + shift],
+                  fill=BODY, width=thick - 2 * SS)
+    ring = rad * 0.3
+    draw.arc([cx - ring, cy - ring, cx + ring, cy + ring],
+             300, 200, fill=VIOLET, width=thick)
+    tip_x, tip_y = cx + ring * 0.87, cy - ring * 0.5
+    draw.polygon([(tip_x + rad * 0.16, tip_y - rad * 0.02),
+                  (tip_x - rad * 0.05, tip_y - rad * 0.16),
+                  (tip_x - rad * 0.02, tip_y + rad * 0.14)], fill=VIOLET)
 
 
-def icon_talk(d, cx, cy, r):
-    w_ = 7 * S
-    b1 = [cx - r * 0.95, cy - r * 0.72, cx + r * 0.18, cy + r * 0.18]
-    d.rounded_rectangle(b1, radius=16 * S, outline=INK, width=w_)
-    d.polygon([(cx - r * 0.6, cy + r * 0.16), (cx - r * 0.34, cy + r * 0.16),
-               (cx - r * 0.58, cy + r * 0.5)], outline=INK, width=w_ - 2 * S)
-    for i in range(2):
-        yy = cy - r * 0.42 + i * r * 0.3
-        d.line([cx - r * 0.72, yy, cx - r * 0.05, yy], fill=INK, width=w_ - 2 * S)
-    b2 = [cx - r * 0.18, cy - r * 0.18, cx + r * 0.95, cy + r * 0.72]
-    d.rounded_rectangle(b2, radius=16 * S, outline=GREEN, width=w_)
-    d.polygon([(cx + r * 0.36, cy + r * 0.7), (cx + r * 0.6, cy + r * 0.7),
-               (cx + r * 0.58, cy + r * 1.0)], outline=GREEN, width=w_ - 2 * S)
-    for i in range(2):
-        yy = cy + r * 0.1 + i * r * 0.3
-        d.line([cx + r * 0.04, yy, cx + r * 0.72, yy], fill=GREEN, width=w_ - 2 * S)
+def pictogram_talks(draw, cx, cy, rad):
+    thick = 7 * SS
+    draw.rounded_rectangle(
+        [cx - rad * 0.95, cy - rad * 0.72, cx + rad * 0.18, cy + rad * 0.18],
+        radius=16 * SS, outline=BODY, width=thick)
+    draw.polygon([(cx - rad * 0.6, cy + rad * 0.16), (cx - rad * 0.34, cy + rad * 0.16),
+                  (cx - rad * 0.58, cy + rad * 0.5)], outline=BODY, width=thick - 2 * SS)
+    for k in range(2):
+        yy = cy - rad * 0.42 + k * rad * 0.3
+        draw.line([cx - rad * 0.72, yy, cx - rad * 0.05, yy],
+                  fill=BODY, width=thick - 2 * SS)
+    draw.rounded_rectangle(
+        [cx - rad * 0.18, cy - rad * 0.18, cx + rad * 0.95, cy + rad * 0.72],
+        radius=16 * SS, outline=LEAF, width=thick)
+    draw.polygon([(cx + rad * 0.36, cy + rad * 0.7), (cx + rad * 0.6, cy + rad * 0.7),
+                  (cx + rad * 0.58, cy + rad * 1.0)], outline=LEAF, width=thick - 2 * SS)
+    for k in range(2):
+        yy = cy + rad * 0.1 + k * rad * 0.3
+        draw.line([cx + rad * 0.04, yy, cx + rad * 0.72, yy],
+                  fill=LEAF, width=thick - 2 * SS)
 
 
-def icon_drone(d, cx, cy, r):
-    w_ = 7 * S
-    # building sits lower and wider so the drone reads clearly above it
-    bx0, by0, bx1, by1 = cx - r * 0.68, cy + r * 0.34, cx + r * 0.68, cy + r * 0.98
-    d.rectangle([bx0, by0, bx1, by1], outline=INK, width=w_)
-    for i in range(3):
-        wx = bx0 + (i + 0.5) * (bx1 - bx0) / 3
-        d.rectangle([wx - r * 0.09, cy + r * 0.54, wx + r * 0.09, cy + r * 0.74],
-                    outline=INK, width=w_ - 3 * S)
-    d.line([cx, by0, cx, cy + r * 0.02], fill=INK, width=w_ - 2 * S)
-    d.polygon([(cx, cy + r * 0.02), (cx + r * 0.32, cy + r * 0.1),
-               (cx, cy + r * 0.18)], fill=BLUE)
-    dx_, dy_ = cx - r * 0.42, cy - r * 0.58
-    d.line([dx_ - r * 0.3, dy_ - r * 0.18, dx_ + r * 0.3, dy_ + r * 0.18],
-           fill=INK, width=w_ - 2 * S)
-    d.line([dx_ - r * 0.3, dy_ + r * 0.18, dx_ + r * 0.3, dy_ - r * 0.18],
-           fill=INK, width=w_ - 2 * S)
-    for sx, sy in ((-0.3, -0.18), (0.3, -0.18), (-0.3, 0.18), (0.3, 0.18)):
-        px, py = dx_ + sx * r, dy_ + sy * r
-        d.ellipse([px - r * 0.13, py - r * 0.05, px + r * 0.13, py + r * 0.05],
-                  outline=RED, width=4 * S)
-    d.ellipse([dx_ - r * 0.09, dy_ - r * 0.09, dx_ + r * 0.09, dy_ + r * 0.09], fill=RED)
+def pictogram_drone(draw, cx, cy, rad):
+    thick = 7 * SS
+    left_b = cx - rad * 0.68
+    right_b = cx + rad * 0.68
+    top_b = cy + rad * 0.34
+    base_b = cy + rad * 0.98
+    draw.rectangle([left_b, top_b, right_b, base_b], outline=BODY, width=thick)
+    for k in range(3):
+        mid = left_b + (k + 0.5) * (right_b - left_b) / 3
+        draw.rectangle([mid - rad * 0.09, cy + rad * 0.54,
+                        mid + rad * 0.09, cy + rad * 0.74],
+                       outline=BODY, width=thick - 3 * SS)
+    draw.line([cx, top_b, cx, cy + rad * 0.02], fill=BODY, width=thick - 2 * SS)
+    draw.polygon([(cx, cy + rad * 0.02), (cx + rad * 0.32, cy + rad * 0.1),
+                  (cx, cy + rad * 0.18)], fill=SKY)
+    drone_x, drone_y = cx - rad * 0.42, cy - rad * 0.58
+    draw.line([drone_x - rad * 0.3, drone_y - rad * 0.18,
+               drone_x + rad * 0.3, drone_y + rad * 0.18],
+              fill=BODY, width=thick - 2 * SS)
+    draw.line([drone_x - rad * 0.3, drone_y + rad * 0.18,
+               drone_x + rad * 0.3, drone_y - rad * 0.18],
+              fill=BODY, width=thick - 2 * SS)
+    for dx, dy in ((-0.3, -0.18), (0.3, -0.18), (-0.3, 0.18), (0.3, 0.18)):
+        px, py = drone_x + dx * rad, drone_y + dy * rad
+        draw.ellipse([px - rad * 0.13, py - rad * 0.05,
+                      px + rad * 0.13, py + rad * 0.05],
+                     outline=CRIMSON, width=4 * SS)
+    draw.ellipse([drone_x - rad * 0.09, drone_y - rad * 0.09,
+                  drone_x + rad * 0.09, drone_y + rad * 0.09], fill=CRIMSON)
 
 
-def icon_capitol(d, cx, cy, r):
-    w_ = 7 * S
-    base = cy + r * 0.78
-    d.line([cx - r, base, cx + r, base], fill=INK, width=w_)
-    for i in range(5):
-        x = cx - r * 0.72 + i * r * 0.36
-        d.line([x, cy + r * 0.28, x, base - 4 * S], fill=INK, width=w_ - 2 * S)
-    d.line([cx - r * 0.88, cy + r * 0.28, cx + r * 0.88, cy + r * 0.28],
-           fill=INK, width=w_)
-    d.arc([cx - r * 0.55, cy - r * 0.62, cx + r * 0.55, cy + r * 0.3],
-          180, 360, fill=INK, width=w_)
-    d.line([cx - r * 0.55, cy - r * 0.16, cx + r * 0.55, cy - r * 0.16],
-           fill=INK, width=w_ - 2 * S)
-    d.line([cx, cy - r * 0.62, cx, cy - r * 0.92], fill=INK, width=w_)
-    d.line([cx - r * 0.3, cy - r * 0.5, cx + r * 0.3, cy + r * 0.05], fill=RED, width=8 * S)
-    d.line([cx - r * 0.3, cy + r * 0.05, cx + r * 0.3, cy - r * 0.5], fill=RED, width=8 * S)
+def pictogram_capitol(draw, cx, cy, rad):
+    thick = 7 * SS
+    floor = cy + rad * 0.78
+    draw.line([cx - rad, floor, cx + rad, floor], fill=BODY, width=thick)
+    for k in range(5):
+        xx = cx - rad * 0.72 + k * rad * 0.36
+        draw.line([xx, cy + rad * 0.28, xx, floor - 4 * SS],
+                  fill=BODY, width=thick - 2 * SS)
+    draw.line([cx - rad * 0.88, cy + rad * 0.28, cx + rad * 0.88, cy + rad * 0.28],
+              fill=BODY, width=thick)
+    draw.arc([cx - rad * 0.55, cy - rad * 0.62, cx + rad * 0.55, cy + rad * 0.3],
+             180, 360, fill=BODY, width=thick)
+    draw.line([cx - rad * 0.55, cy - rad * 0.16, cx + rad * 0.55, cy - rad * 0.16],
+              fill=BODY, width=thick - 2 * SS)
+    draw.line([cx, cy - rad * 0.62, cx, cy - rad * 0.92], fill=BODY, width=thick)
+    draw.line([cx - rad * 0.3, cy - rad * 0.5, cx + rad * 0.3, cy + rad * 0.05],
+              fill=CRIMSON, width=8 * SS)
+    draw.line([cx - rad * 0.3, cy + rad * 0.05, cx + rad * 0.3, cy - rad * 0.5],
+              fill=CRIMSON, width=8 * SS)
 
 
-# ---------------------------------------------------------------- content
-LEAD = {
-    "label": "LEAD STORY · SPACE DEFENCE",
-    "color": NAVY,
-    "headline": "NATO vows space defence over Russia nuclear satellite report",
-    "caption": ("German media report Moscow plans a launch within weeks that could destroy "
-                "satellites; the allies promise a joint defence of orbit."),
-    "icon": icon_satellite,
-}
+# ------------------------------------------------------------- the stories
+@dataclass
+class Story:
+    tag: str
+    colour: tuple
+    title: str
+    detail: str
+    draw_icon: object
 
-PANELS = [
-    {
-        "label": "TECHNOLOGY · NVIDIA", "color": PURPLE,
-        "headline": "Nvidia brings back Huang as CEO after Trump push",
-        "caption": "Jensen Huang returns 11 days after quitting in a 'spy' row; shares jump 33% on the reversal.",
-        "icon": icon_chip_return,
-    },
-    {
-        "label": "WAR · UKRAINE", "color": GREEN,
-        "headline": "Zelensky calls for four-way talks 'as soon as possible'",
-        "caption": "Ukraine's president urges direct talks with Russia while strikes on the Kyiv region continue.",
-        "icon": icon_talk,
-    },
-    {
-        "label": "AFRICA · SUDAN", "color": DARKRED,
-        "headline": "Drones hit homes and a UN building in Khartoum",
-        "caption": "Strikes land in Sudan's capital as the civil war grinds on into another year.",
-        "icon": icon_drone,
-    },
-    {
-        "label": "UNITED STATES", "color": GOLD,
-        "headline": "Congressman Gomez to resign after ethics findings",
-        "caption": "The California Democrat steps down on 1 December after a House panel found evidence of sexual misconduct.",
-        "icon": icon_capitol,
-    },
+
+LEAD_STORY = Story(
+    tag="LEAD STORY · SPACE DEFENCE",
+    colour=SEA,
+    title="NATO vows space defence over Russia nuclear satellite report",
+    detail=("German media report Moscow plans a launch within weeks that could "
+            "destroy satellites; the allies promise a joint defence of orbit."),
+    draw_icon=pictogram_satellite,
+)
+
+GRID_STORIES = [
+    Story("TECHNOLOGY · NVIDIA", VIOLET,
+          "Nvidia brings back Huang as CEO after Trump push",
+          "Jensen Huang returns 11 days after quitting in a 'spy' row; "
+          "shares jump 33% on the reversal.",
+          pictogram_chip),
+    Story("WAR · UKRAINE", LEAF,
+          "Zelensky calls for four-way talks 'as soon as possible'",
+          "Ukraine's president urges direct talks with Russia while "
+          "strikes on the Kyiv region continue.",
+          pictogram_talks),
+    Story("AFRICA · SUDAN", WINE,
+          "Drones hit homes and a UN building in Khartoum",
+          "Strikes land in Sudan's capital as the civil war grinds "
+          "on into another year.",
+          pictogram_drone),
+    Story("UNITED STATES", OCHRE,
+          "Congressman Gomez to resign after ethics findings",
+          "The California Democrat steps down on 1 December after a House "
+          "panel found evidence of sexual misconduct.",
+          pictogram_capitol),
 ]
 
-TICKER = ("GTA VI hacker gets 7 years in London   •   "
-          "More bodies recovered from Indonesia factory fire   •   "
-          "Thousands march in Lisbon over living costs")
+BOTTOM_LINE = (
+    "GTA VI hacker gets 7 years in London   •   "
+    "More bodies recovered from Indonesia factory fire   •   "
+    "Thousands march in Lisbon over living costs"
+)
 
 
-# ---------------------------------------------------------------- layout
-def panel_h(d, p, text_w):
-    hf, cf = F(SANS_B, 25), F(SANS, 19)
-    nh = len(wrap(d, p["headline"], hf, text_w))
-    nc = len(wrap(d, p["caption"], cf, text_w))
-    return 14 + 32 + 10 + block_h(hf, nh, 1.12) + 4 + block_h(cf, nc, 1.22) + 14
+# ------------------------------------------------------------- page layout
+def grid_panel_height(draw, story, text_width):
+    head = load(BOLD, 25)
+    body = load(REG, 19)
+    title_rows = len(wrapped(draw, story.title, head, text_width))
+    detail_rows = len(wrapped(draw, story.detail, body, text_width))
+    return 14 + 32 + 10 + stack_height(head, title_rows, 1.12) + 4 \
+        + stack_height(body, detail_rows, 1.22) + 14
 
 
-def draw_panel(d, box, p):
-    x0, y0, x1, y1 = [v * S for v in box]
-    d.rounded_rectangle([x0, y0, x1, y1], radius=10 * S, fill=CARD, outline=INK, width=2 * S)
-    chip(d, x0 + 16 * S, y0 + 14 * S, p["label"], p["color"])
-    icon_r = 46 * S
-    p["icon"](d, x1 - icon_r - 18 * S, y0 + 94 * S, icon_r)
-    text_w = (x1 - x0) - 32 * S - (icon_r * 2 + 26 * S)
-    hf, cf = F(SANS_B, 25), F(SANS, 19)
-    y = y0 + 56 * S
-    y = draw_lines(d, x0 + 16 * S, y, wrap(d, p["headline"], hf, text_w), hf, INK, 1.12)
-    y += 4 * S
-    draw_lines(d, x0 + 16 * S, y, wrap(d, p["caption"], cf, text_w), cf, (52, 52, 50), 1.22)
+def render_grid_panel(draw, box, story):
+    x0, y0, x1, y1 = [v * SS for v in box]
+    draw.rounded_rectangle([x0, y0, x1, y1], radius=10 * SS,
+                           fill=PANEL_BG, outline=BODY, width=2 * SS)
+    pill(draw, x0 + 16 * SS, y0 + 14 * SS, story.tag, story.colour)
+    icon_rad = 46 * SS
+    story.draw_icon(draw, x1 - icon_rad - 18 * SS, y0 + 94 * SS, icon_rad)
+    usable = (x1 - x0) - 32 * SS - (icon_rad * 2 + 26 * SS)
+    head, body = load(BOLD, 25), load(REG, 19)
+    cursor = y0 + 56 * SS
+    cursor = paint_stack(draw, x0 + 16 * SS, cursor,
+                         wrapped(draw, story.title, head, usable), head, BODY, 1.12)
+    paint_stack(draw, x0 + 16 * SS, cursor + 4 * SS,
+                wrapped(draw, story.detail, body, usable), body, SOFT, 1.22)
 
 
-def main():
-    img = Image.new("RGB", (W, H), PAPER)
-    d = ImageDraw.Draw(img)
-    M = 34
+def build():
+    page = Image.new("RGB", (CANVAS, CANVAS), BG)
+    draw = ImageDraw.Draw(page)
+    margin = 34
 
-    # masthead
-    y = centered(d, W // 2, 14 * S,
-                 "O N E   D A Y  ·  O N E   P I C T U R E  ·  T H E   W H O L E   W O R L D",
-                 F(SANS_B, 19), MUTE)
-    y = centered(d, W // 2, y + 2 * S, "TUESDAY 24 NOVEMBER 2026", F(SERIF_B, 62), RED)
-    d.line([M * S, y + 2 * S, W - M * S, y + 2 * S], fill=INK, width=5 * S)
-    d.line([M * S, y + 9 * S, W - M * S, y + 9 * S], fill=INK, width=2 * S)
-    cur = (y + 20 * S) // S
+    # masthead block
+    top = centred(draw, 14 * SS,
+                  "O N E   D A Y  ·  O N E   P I C T U R E  ·  T H E   W H O L E   W O R L D",
+                  load(BOLD, 19), GREY)
+    top = centred(draw, top + 2 * SS, "TUESDAY 24 NOVEMBER 2026",
+                  load(SERIF, 62), CRIMSON)
+    draw.line([margin * SS, top + 2 * SS, CANVAS - margin * SS, top + 2 * SS],
+              fill=BODY, width=5 * SS)
+    draw.line([margin * SS, top + 9 * SS, CANVAS - margin * SS, top + 9 * SS],
+              fill=BODY, width=2 * SS)
+    y_pos = (top + 20 * SS) // SS
 
-    # lead story panel
-    lead_text_w = (1024 - 2 * M - 40) * S - 235 * S
-    hf, cf = F(SANS_B, 40), F(SANS, 22)
-    nh = len(wrap(d, LEAD["headline"], hf, lead_text_w))
-    nc = len(wrap(d, LEAD["caption"], cf, lead_text_w))
-    lead_h = 16 + 32 + 12 + block_h(hf, nh, 1.1) + 6 + block_h(cf, nc, 1.22) + 14
-    x0, y0, x1, y1 = M, cur, 1024 - M, cur + lead_h
-    d.rounded_rectangle([x0 * S, y0 * S, x1 * S, y1 * S], radius=10 * S,
-                        fill=CARD, outline=INK, width=3 * S)
-    chip(d, x0 * S + 18 * S, y0 * S + 16 * S, LEAD["label"], LEAD["color"])
-    icon_satellite(d, x1 * S - 118 * S, y0 * S + (lead_h // 2 + 8) * S, 82 * S)
-    yy = y0 * S + 60 * S
-    yy = draw_lines(d, x0 * S + 18 * S, yy, wrap(d, LEAD["headline"], hf, lead_text_w), hf, INK, 1.1)
-    yy += 6 * S
-    draw_lines(d, x0 * S + 18 * S, yy, wrap(d, LEAD["caption"], cf, lead_text_w),
-               cf, (52, 52, 50), 1.22)
-    cur = y1 + 12
+    # lead panel, with the satellite pictogram on its right
+    lead_head, lead_body = load(BOLD, 40), load(REG, 22)
+    lead_width = (FINAL - 2 * margin - 40) * SS - 235 * SS
+    title_rows = wrapped(draw, LEAD_STORY.title, lead_head, lead_width)
+    detail_rows = wrapped(draw, LEAD_STORY.detail, lead_body, lead_width)
+    lead_height = 16 + 32 + 12 + stack_height(lead_head, len(title_rows), 1.1) \
+        + 6 + stack_height(lead_body, len(detail_rows), 1.22) + 14
+    lx0, ly0 = margin, y_pos
+    lx1, ly1 = FINAL - margin, y_pos + lead_height
+    draw.rounded_rectangle([lx0 * SS, ly0 * SS, lx1 * SS, ly1 * SS],
+                           radius=10 * SS, fill=PANEL_BG, outline=BODY, width=3 * SS)
+    pill(draw, lx0 * SS + 18 * SS, ly0 * SS + 16 * SS,
+         LEAD_STORY.tag, LEAD_STORY.colour)
+    pictogram_satellite(draw, lx1 * SS - 118 * SS,
+                        ly0 * SS + (lead_height // 2 + 8) * SS, 82 * SS)
+    text_y = ly0 * SS + 60 * SS
+    text_y = paint_stack(draw, lx0 * SS + 18 * SS, text_y,
+                         title_rows, lead_head, BODY, 1.1)
+    paint_stack(draw, lx0 * SS + 18 * SS, text_y + 6 * SS,
+                detail_rows, lead_body, SOFT, 1.22)
+    y_pos = ly1 + 12
 
-    # 2 x 2 grid, each row sized by its tallest panel
-    gw = (1024 - 2 * M - 12) // 2
-    text_w = gw * S - 32 * S - (88 * S + 26 * S)
-    rows = [PANELS[:2], PANELS[2:]]
-    for row in rows:
-        rh = max(panel_h(d, p, text_w) for p in row)
-        for i, p in enumerate(row):
-            px = M + i * (gw + 12)
-            draw_panel(d, [px, cur, px + gw, cur + rh], p)
-        cur += rh + 12
+    # four smaller stories in two rows of two
+    col_width = (FINAL - 2 * margin - 12) // 2
+    inner_width = col_width * SS - 32 * SS - (92 * SS + 26 * SS)
+    for row_start in (0, 2):
+        pair = GRID_STORIES[row_start:row_start + 2]
+        row_height = max(grid_panel_height(draw, s, inner_width) for s in pair)
+        for offset, story in enumerate(pair):
+            left = margin + offset * (col_width + 12)
+            render_grid_panel(draw, [left, y_pos, left + col_width,
+                                     y_pos + row_height], story)
+        y_pos += row_height + 12
 
-    # ticker bar along the bottom
-    tf = F(SANS, 22)
-    n_t = len(wrap(d, TICKER, tf, (1024 - 2 * M - 36) * S))
-    tick_h = 12 + 30 + 4 + block_h(tf, n_t, 1.25) + 12
-    d.rectangle([M * S, cur * S, (1024 - M) * S, (cur + tick_h) * S], fill=INK)
-    d.text(((M + 16) * S, (cur + 11) * S), "ALSO ON TUESDAY",
-           font=F(SANS_B, 21), fill=(255, 205, 84))
-    draw_lines(d, (M + 16) * S, (cur + 44) * S,
-               wrap(d, TICKER, tf, (1024 - 2 * M - 36) * S), tf, (245, 242, 232), 1.25)
-    cur += tick_h + 10
+    # black ticker strip with the day's shorter items in white
+    ticker_face = load(REG, 22)
+    ticker_rows = wrapped(draw, BOTTOM_LINE, ticker_face,
+                          (FINAL - 2 * margin - 36) * SS)
+    strip_height = 12 + 30 + 4 + stack_height(ticker_face, len(ticker_rows), 1.25) + 12
+    draw.rectangle([margin * SS, y_pos * SS, (FINAL - margin) * SS,
+                    (y_pos + strip_height) * SS], fill=BODY)
+    draw.text(((margin + 16) * SS, (y_pos + 11) * SS), "ALSO ON TUESDAY",
+              font=load(BOLD, 21), fill=(255, 205, 84))
+    paint_stack(draw, (margin + 16) * SS, (y_pos + 44) * SS,
+                ticker_rows, ticker_face, (245, 242, 232), 1.25)
+    y_pos += strip_height + 10
 
-    # footer line
-    centered(d, W // 2, cur * S,
-             "Compiled from the day's reporting by SCMP, the Japan Times and the Manila Times  ·  Tuesday 24 November 2026",
-             F(SANS_I, 18), MUTE)
-    print(f"layout ends at y={cur + 26} of 1024")
+    centred(draw, y_pos * SS,
+            "Compiled from the day's reporting by SCMP, the Japan Times and "
+            "the Manila Times  ·  Tuesday 24 November 2026",
+            load(ITAL, 18), GREY)
+    print(f"layout ends at y={y_pos + 26} of {FINAL}")
 
-    img = img.resize((1024, 1024), Image.LANCZOS)
-    img.save("entry.png", optimize=True)
-    print("wrote entry.png")
+    page.resize((FINAL, FINAL), Image.LANCZOS).save(OUT, optimize=True)
+    print(f"wrote {OUT}")
 
 
 if __name__ == "__main__":
-    main()
+    build()
